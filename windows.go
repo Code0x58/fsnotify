@@ -63,7 +63,7 @@ func (w *Watcher) Close() error {
 	return <-ch
 }
 
-// Add starts watching the named file or directory (non-recursively).
+// Add starts watching the named file or directory (non-recursively). Symlinks are not implicitly followed.
 func (w *Watcher) Add(name string) error {
 	if w.isClosed {
 		return errors.New("watcher already closed")

@@ -10,7 +10,6 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"runtime"
 	"sync/atomic"
@@ -1012,115 +1011,67 @@ func TestFsnotifyClose(t *testing.T) {
 	}
 }
 
-func TestFsnotifyFakeSymlink(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("symlinks don't work on Windows.")
-	}
-
-	watcher := newWatcher(t)
-
-	// Create directory to watch
+func TestSymlinkNotFollowed(t *testing.T) {
 	testDir := tempMkdir(t)
-	defer os.RemoveAll(testDir)
+	file1 := filepath.Join(testDir, "file1")
+	file2 := filepath.Join(testDir, "file2")
+	link := filepath.Join(testDir, "link")
 
-	var errorsReceived counter
-	// Receive errors on the error channel on a separate goroutine
-	go func() {
-		for errors := range watcher.Errors {
-			t.Logf("Received error: %s", errors)
-			errorsReceived.increment()
-		}
-	}()
-
-	// Count the CREATE events received
-	var createEventsReceived, otherEventsReceived counter
-	go func() {
-		for ev := range watcher.Events {
-			t.Logf("event received: %s", ev)
-			if ev.Op&Create == Create {
-				createEventsReceived.increment()
-			} else {
-				otherEventsReceived.increment()
-			}
-		}
-	}()
-
-	addWatch(t, watcher, testDir)
-
-	if err := os.Symlink(filepath.Join(testDir, "zzz"), filepath.Join(testDir, "zzznew")); err != nil {
-		t.Fatalf("Failed to create bogus symlink: %s", err)
+	f1, err := os.Create(file1)
+	if err != nil {
+		t.Fatalf("Failed to create file1: %s", err)
 	}
-	t.Logf("Created bogus symlink")
-
-	// We expect this event to be received almost immediately, but let's wait 500 ms to be sure
-	time.Sleep(500 * time.Millisecond)
-
-	// Should not be error, just no events for broken links (watching nothing)
-	if errorsReceived.value() > 0 {
-		t.Fatal("fsnotify errors have been received.")
-	}
-	if otherEventsReceived.value() > 0 {
-		t.Fatal("fsnotify other events received on the broken link")
+	defer f1.Close()
+	if _, err := os.Create(file2); err != nil {
+		t.Fatalf("Failed to create file2: %s", err)
 	}
 
-	// Except for 1 create event (for the link itself)
-	if createEventsReceived.value() == 0 {
-		t.Fatal("fsnotify create events were not received after 500 ms")
-	}
-	if createEventsReceived.value() > 1 {
-		t.Fatal("fsnotify more create events received than expected")
+	// symlink works for Windows too
+	if err := os.Symlink(file1, link); err != nil {
+		t.Fatalf("Failed to create symlink: %s", err)
 	}
 
-	// Try closing the fsnotify instance
-	t.Log("calling Close()")
-	watcher.Close()
-}
-
-func TestCyclicSymlink(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("symlinks don't work on Windows.")
+	w, err := NewWatcher()
+	if err != nil {
+		t.Fatalf("Failed to create watcher")
 	}
 
-	watcher := newWatcher(t)
-
-	testDir := tempMkdir(t)
-	defer os.RemoveAll(testDir)
-
-	link := path.Join(testDir, "link")
-	if err := os.Symlink(".", link); err != nil {
-		t.Fatalf("could not make symlink: %v", err)
-	}
-	addWatch(t, watcher, testDir)
-
-	var createEventsReceived counter
-	go func() {
-		for ev := range watcher.Events {
-			if ev.Op&Create == Create {
-				createEventsReceived.increment()
-			}
-		}
-	}()
-
-	if err := os.Remove(link); err != nil {
-		t.Fatalf("Error removing link: %v", err)
+	err = w.Add(link)
+	if err != nil {
+		t.Fatalf("Failed to add link: %s", err)
 	}
 
-	// It would be nice to be able to expect a delete event here, but kqueue has
-	// no way for us to get events on symlinks themselves, because opening them
-	// opens an fd to the file to which they point.
+	// change file 1 - no event
+	f1.Write([]byte("Hello"))
+	f1.Sync()
+	// XXX(obristow): doing a create here shows a CHMOD event on mac - is that an issue?
 
-	if err := ioutil.WriteFile(link, []byte("foo"), 0700); err != nil {
-		t.Fatalf("could not make symlink: %v", err)
+	select {
+	case event := <-w.Events:
+		t.Fatalf("Event from watcher: %v", event)
+	case err := <-w.Errors:
+		t.Fatalf("Error from watcher: %v", err)
+	case <-time.After(50 * time.Millisecond):
 	}
 
-	// We expect this event to be received almost immediately, but let's wait 500 ms to be sure
-	time.Sleep(500 * time.Millisecond)
-
-	if got := createEventsReceived.value(); got == 0 {
-		t.Errorf("want at least 1 create event got %v", got)
+	// ~atomic link change - event
+	tmpLink := filepath.Join(testDir, "tmp-link")
+	if err := os.Symlink(file2, tmpLink); err != nil {
+		t.Fatalf("Failed to create symlink: %s", err)
 	}
 
-	watcher.Close()
+	if err := os.Rename(tmpLink, link); err != nil {
+		t.Fatalf("Failed to replace symlink: %s", err)
+	}
+
+	select {
+	case _ = <-w.Events:
+	case err := <-w.Errors:
+		t.Fatalf("Error from watcher: %v", err)
+	case <-time.After(50 * time.Millisecond):
+		t.Fatalf("Took too long to wait for event")
+	}
+
 }
 
 // TestConcurrentRemovalOfWatch tests that concurrent calls to RemoveWatch do not race.

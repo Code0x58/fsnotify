@@ -90,6 +90,10 @@ See [example_test.go](https://github.com/fsnotify/fsnotify/blob/master/example_t
 
 ## FAQ
 
+**Are symlinks followed?**
+As of v2.0.0 symlinks are no longer followed. You will have to explicitly get the underlying path with [`filepath.EvalSymlinks(path)`](https://golang.org/pkg/path/filepath/#EvalSymlinks) before passing it to the watcher if you want this behaviour. See [example_test.go](https://github.com/fsnotify/fsnotify/blob/master/example_test.go).
+
+
 **When a file is moved to another directory is it still being watched?**
 
 No (it shouldn't be, unless you are watching where it was moved to).
@@ -127,4 +131,3 @@ fsnotify requires support from underlying OS to work. The current NFS protocol d
 
 * [notify](https://github.com/rjeczalik/notify)
 * [fsevents](https://github.com/fsnotify/fsevents)
-
