@@ -87,8 +87,8 @@ func (w *Watcher) Close() error {
 	return nil
 }
 
-// Add starts watching the named file or directory (non-recursively). Symlinks are not implicitly followed.
-func (w *Watcher) Add(name string) error {
+// AddRaw starts watching the named file or directory (non-recursively). Symlinks are not implicitly resolved.
+func (w *Watcher) AddRaw(name string) error {
 	name = filepath.Clean(name)
 	if w.isClosed() {
 		return errors.New("inotify instance already closed")

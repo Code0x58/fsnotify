@@ -72,10 +72,18 @@ func main() {
 		}
 	}()
 
+	// if this is a link, it will follow all the links and watch the file pointed to
 	err = watcher.Add("/tmp/foo")
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// this will watch the link, rather than the file it points to
+	err = watcher.AddRaw("/tmp/link")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	<-done
 }
 ```
@@ -90,8 +98,8 @@ See [example_test.go](https://github.com/fsnotify/fsnotify/blob/master/example_t
 
 ## FAQ
 
-**Are symlinks followed?**
-As of v2.0.0 symlinks are no longer followed. You will have to explicitly get the underlying path with [`filepath.EvalSymlinks(path)`](https://golang.org/pkg/path/filepath/#EvalSymlinks) before passing it to the watcher if you want this behaviour. See [example_test.go](https://github.com/fsnotify/fsnotify/blob/master/example_test.go).
+**Are symlinks resolved?**
+Symlinks are implitily resolved by [`filepath.EvalSymlinks(path)`](https://golang.org/pkg/path/filepath/#EvalSymlinks) when `watcher.Add(name)` is used. If that is not desired, you can use `watcher.AddRaw(name)` to not follow any symlinks before watching. See [example_test.go](https://github.com/fsnotify/fsnotify/blob/master/example_test.go).
 
 
 **When a file is moved to another directory is it still being watched?**
